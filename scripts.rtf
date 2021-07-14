@@ -1,0 +1,2254 @@
+{\rtf1\fbidis\ansi\ansicpg936\deff0\nouicompat\deflang1033\deflangfe2052{\fonttbl{\f0\fswiss\fprq2\fcharset0 Calibri;}{\f1\fnil\fcharset0 Calibri;}}
+{\colortbl ;\red0\green0\blue255;}
+{\*\generator Riched20 10.0.19041}\viewkind4\uc1 
+\pard\ltrpar\widctlpar\sl252\slmult1\f0\fs22 // Include the libraries:\par
+// LiquidCrystal_I2C.h: {{\field{\*\fldinst{HYPERLINK https://github.com/johnrickman/LiquidCrystal_I2C }}{\fldrslt{https://github.com/johnrickman/LiquidCrystal_I2C\ul0\cf0}}}}\f0\fs22\par
+#include <Wire.h> // Library for I2C communication\par
+#include <LiquidCrystal_I2C.h> // Library for LCD\par
+#include <Servo.h>\par
+\par
+// Wiring: SDA pin is connected to A4 and SCL pin to A5.\par
+// Connect to LCD via I2C, default address 0x3F (A0-A2 not jumpered)\par
+LiquidCrystal_I2C lcd = LiquidCrystal_I2C(0x3F, 16, 2); // Change to (0x27,20,4) for 20x4 LCD.\par
+\par
+ // pushbutton pin\par
+ int up = 8;              //RESET button\par
+ int down = 10;           //spray button\par
+\par
+ const int servoPin = 9;\par
+ Servo servo;            //Servo control on/off switch of spray\par
+ const int servoPin2 = 11;\par
+ Servo servo2;           //Servo2 control volume of spray\par
+\par
+ int angle_counter = 1;\par
+ int servo_angle = 0;   //Servo turning angle\par
+ int servo2_angle = 0;\par
+\par
+boolean current_up = LOW;   //reset switch (current data)      \par
+boolean last_up= LOW;       //reset switch (last data)\par
+boolean last_down = LOW;    //spray switch (current data)\par
+boolean current_down = LOW; //spray switch (last data)\par
+\par
+//Counter to change positions of pages\par
+int page_counter = 1 ;       //To move between mode\par
+int counter = 0;             //counter for rotary encoder switch\par
+int counter1 = 0;\par
+int counter2 = 0;\par
+int counter3 = 0;\par
+int counter4 = 0;\par
+int counter5 = 0;\par
+int counter6 = 0;\par
+int submenu = 0;            \par
+int button_counter = 0;\par
+bool rotated = true;          //to control turning of rotary enconder switch\par
+bool ButtonPressed = false;   //to control pressing button of rotary encoder switch\par
+\par
+//pulse setting\par
+int no_of_pulse = 0;\par
+int pulse_duration = 0;\par
+int pulse_duration_check = 0;\par
+int pulse_delay = 0;\par
+int pulse_delay_btw12 = 0;\par
+int pulse_delay_btw23 = 0;\par
+int pulse_delay_btw34 = 0;\par
+int half_volume = 0;\par
+int full_volume = 0;\par
+\par
+const int PinCLK = 2;         //pin setting of rotary encoder switch\par
+const int PinDT = 4;\par
+const int PinSW = 3;\par
+\par
+\par
+// Statuses\par
+int CLKNow;   \par
+int CLKPrevious;\par
+int DTNow;\par
+int DTPrevious;\par
+\par
+//Timers\par
+float TimeNow1;\par
+float TimeNow2;\par
+\par
+\par
+  //make custom arrow character\par
+  byte left_arrow[] = \{\par
+    B00000,\par
+    B00001,\par
+    B00011,\par
+    B00111,\par
+    B01111,\par
+    B00111,\par
+    B00011,\par
+    B00001\par
+  \};\par
+\par
+  byte right_arrow[] = \{\par
+    B00000,\par
+    B10000,\par
+    B11000,\par
+    B11100,\par
+    B11110,\par
+    B11100,\par
+    B11000,\par
+    B10000\par
+  \};\par
+  \par
+void setup() \{\par
+  Serial.begin(2000000);      //serial monitor setup\par
+  servo.attach (servoPin);    //servo motor setup\par
+  servo.write(30);\par
+  servo2.attach (servoPin2);\par
+  servo2.write(0);\par
+\par
+  // Initiate the LCD:\par
+  lcd.init();\par
+  lcd.backlight();\par
+  lcd.createChar(0, left_arrow);\par
+  lcd.createChar(1, right_arrow);\par
+  \par
+  lcd.setCursor(15,0);\par
+  lcd.print("WELCOME!");\par
+  for (int i = 0; i<11; i++) \{\par
+    lcd.scrollDisplayLeft();\par
+    delay(500);\par
+  \}\par
+  delay(100);\par
+  lcd.clear();\par
+  delay(100);\par
+\par
+  lcd.setCursor(0,0);\par
+  lcd.print("Please Select");\par
+  lcd.setCursor(0,1);\par
+  lcd.print("a mode");\par
+  delay(1000);\par
+  lcd.clear();\par
+  delay(500);\par
+\par
+  // Set the Switch pin to use Arduino PULLUP resistors\par
+  pinMode(2, INPUT_PULLUP);\par
+  pinMode(3, INPUT_PULLUP);\par
+  pinMode(4, INPUT_PULLUP);\par
+\par
+  //Store states\par
+  CLKPrevious = digitalRead(PinCLK);\par
+  DTPrevious = digitalRead(PinDT);\par
+\par
+  attachInterrupt(digitalPinToInterrupt(PinCLK), rotate, CHANGE);\par
+  attachInterrupt(digitalPinToInterrupt(PinSW), buttonPressed, FALLING);\par
+\par
+  TimeNow1 = millis(); //Start timer 1 \par
+  \par
+  \par
+\}\par
+\par
+//---- De-bouncing function for all buttons----//\par
+boolean debounce(boolean last, int pin)\par
+\{\par
+boolean current = digitalRead(pin);\par
+if (last != current)\par
+\{\par
+delay(5);\par
+current = digitalRead(pin);\par
+\}\par
+return current;\par
+\}\par
+\par
+void loop() \{\par
+\par
+      //check for the clk pin and DT pin of rotary encoder\par
+      Serial.print("CLK Pin: ");\par
+      Serial.println(digitalRead(PinCLK));\par
+      Serial.print("DT Pin: ");\par
+      Serial.println(digitalRead(PinDT));\par
+      delay(5);\par
+\par
+  SubmenuChecker();\par
+  Serial.print("page counter: ");   //check current page counter\par
+  Serial.println(page_counter);\par
+  //rotated = false; \par
+  Serial.print("submenu: ");        //check current submenu\par
+  Serial.println(submenu);\par
+  ButtonChecker();\par
+  SubmenuChecker();\par
+  Serial.println(no_of_pulse);      //check current no of pulse selected\par
+  Serial.print("Counter1: ");       //check current counter1\par
+  Serial.println(counter1);\par
+  Serial.print("Pulse Duration: "); //check current pulse duration selected\par
+  Serial.println(pulse_duration);\par
+  durationcheck();\par
+  durationcheck1();\par
+  durationcheck2();\par
+  delaycheck();\par
+  eachdelaycheck1();\par
+\par
+  current_up = debounce(last_up, up);         //Debounce for RESET button\par
+  current_down = debounce(last_down, down);   //Debounce for SPRAY button\par
+\par
+      //if the RESET button pressed\par
+      if (last_up == LOW && current_up == HIGH)\{    \par
+        submenu = 0;\par
+        page_counter = 0;\par
+        counter = 0;\par
+        counter1 = 0;\par
+        counter2 = 0;\par
+        counter3 = 0;\par
+        counter4 = 0;\par
+        counter5 = 0;\par
+        counter6 = 0;\par
+        servo_angle = 30;\par
+        servo2_angle = 0;\par
+        no_of_pulse = 0;\par
+        pulse_duration = 0;\par
+        pulse_delay = 0;\par
+        pulse_delay_btw12 = 0;\par
+        pulse_delay_btw23 = 0;\par
+        pulse_delay_btw34 = 0;\par
+        half_volume = 0;\par
+        full_volume = 0;\par
+        SubmenuChecker();\par
+     \}\par
+  \par
+    last_up = current_up;\par
+\par
+    //if the SPRAY button pressed\par
+    if (last_down== LOW && current_down == HIGH)\{    \par
+      servocheck();\par
+    \}\par
+    last_down = current_down;\par
+\}\par
+\par
+//rotary encoder press switch part (timer and debounce)\par
+void buttonPressed() \{\par
+  TimeNow2 = millis();\par
+  if(TimeNow2 - TimeNow1 > 500) \{\par
+    ButtonPressed = true;\par
+  \}\par
+  TimeNow1 = millis();\par
+\}\par
+\par
+void rotate() \{\par
+  CLKNow = digitalRead(PinCLK); //Read the state of the CLK pin\par
+\par
+  if(CLKNow != CLKPrevious && CLKNow == 1) \{\par
+    if(submenu == 0)\{                     //in submenu 1--> page of choosing mode\par
+    if(digitalRead(PinDT) != CLKNow) \{\par
+      if(page_counter < 4) \{      //rotary encoder turn CW the page counter ++, max of page/mode = 4\par
+        page_counter++;\par
+      \}else \{\par
+        page_counter = 4;\par
+      \}\par
+    \}else\{\par
+      if(page_counter > 1) \{      //rotary encoder turn CCW page counter --, min = 1\par
+        page_counter--;\par
+      \}else \{\par
+        page_counter = 1;\par
+      \}\par
+    \}\par
+   \}\par
+   if(submenu == 1)\{             //submenu 1\par
+   if(digitalRead(PinDT) != CLKNow) \{\par
+      if(counter < 6) \{\par
+        counter++;               //rotary encoder turn CW --> counter++\par
+      \}else \{\par
+        counter = 6;             //max counter = 6\par
+      \}\par
+    \}else\{\par
+      if(counter > 1) \{          //rotary encoder turn CCW --> counter--\par
+        counter--;\par
+      \}else \{\par
+        counter = 1;             //min counter = 1\par
+      \}\par
+    \}\par
+   \}\par
+   if(submenu == 2)\{            //submenu 2\par
+   if(digitalRead(PinDT) != CLKNow) \{\par
+      if(counter < 22) \{        //rotary encoder turn CW --> counter++\par
+        counter++;\par
+      \}else \{\par
+        counter = 22;           //max counter = 22\par
+      \}\par
+      if(counter2 < 14) \{\par
+        counter2++;             //rotary encoder turn CW --> counter2++\par
+      \}else \{\par
+        counter2 = 14;          //max counter2 = 14\par
+      \}\par
+      if(counter3 < 10) \{\par
+        counter3++;             //rotary encoder turn CW --> counter3++\par
+      \}else \{\par
+        counter3 = 10;          //max counter3 = 10\par
+      \}\par
+    \}else\{\par
+      if(counter > 1) \{\par
+        counter--;              //rotary encoder turn CCW --> counter--\par
+      \}else \{\par
+        counter = 1;            //min counter = 1\par
+      \}\par
+      if(counter2 > 1) \{        //rotary encoder turn CCW --> counter2--\par
+        counter2--;\par
+      \}else \{\par
+        counter2 = 1;           //min counter2 = 1\par
+      \}\par
+      if(counter3 > 1) \{        //rotary encoder turn CCW --> counter3--\par
+        counter3--;\par
+      \}else \{\par
+        counter3 = 1;           //min counter3 = 1\par
+      \}\par
+    \}\par
+   \}\par
+   if(submenu == 3)\{            //submenu 3\par
+   if(digitalRead(PinDT) != CLKNow) \{\par
+      if(counter1 < 14) \{\par
+        counter1++;             //rotary encoder turn CW --> counter1++\par
+      \}else \{\par
+        counter1 = 14;          //max counter1 = 14\par
+      \}\par
+    \}else\{\par
+      if(counter1 > 1) \{\par
+        counter1--;             //rotary encoder turn CCW --> counter1--\par
+      \}else \{\par
+        counter1 = 1;           //min counter1 = 1\par
+      \}\par
+    \}\par
+   \}\par
+   if(submenu == 4)\{            //submenu 4\par
+   if(digitalRead(PinDT) != CLKNow) \{\par
+      if(counter4 < 14) \{\par
+        counter4++;             //rotary encoder turn CW --> counter4++\par
+      \}else \{\par
+        counter4 = 14;          //max counter4 = 14\par
+      \}\par
+    \}else\{\par
+      if(counter4 > 1) \{\par
+        counter4--;             //rotary encoder turn CCW --> counter4--\par
+      \}else \{\par
+        counter4 = 1;           //min counter4 = 1\par
+      \}\par
+    \}\par
+   \}\par
+   if(submenu == 5)\{            //submenu 5\par
+   if(digitalRead(PinDT) != CLKNow) \{\par
+      if(counter5 < 14) \{\par
+        counter5++;             //rotary encoder turn CW --> counter5++\par
+      \}else \{\par
+        counter5 = 14;          //max counter5 = 14\par
+      \}\par
+    \}else\{\par
+      if(counter5 > 1) \{\par
+        counter5--;             //rotary encoder turn CCW --> counter5--\par
+      \}else \{\par
+        counter5 = 1;           //min counter5 = 1\par
+      \}\par
+    \}\par
+   \}\par
+   if(submenu == 6)\{            //submenu 6\par
+   if(digitalRead(PinDT) != CLKNow) \{\par
+      if(counter6 < 14) \{\par
+        counter6++;             //rotary encoder turn CW --> counter6++\par
+      \}else \{\par
+        counter6 = 14;          //max counter6 = 14\par
+      \}\par
+    \}else\{\par
+      if(counter6 > 1) \{\par
+        counter6--;             //rotary encoder turn CCW --> counter6--\par
+      \}else \{\par
+        counter6 = 1;           //min counter6 = 1\par
+      \}\par
+    \}\par
+   \}\par
+  \}\par
+  CLKPrevious = CLKNow; //Store last CLK state\par
+  rotated = true;\par
+\}\par
+\par
+void ButtonChecker() \{\par
+  if(ButtonPressed == true) \{\par
+    if(submenu < 6) \{\par
+      submenu++;                //rotary encoder pressed --> submenu++\par
+      Serial.println(submenu);\par
+    \}else\{\par
+      submenu--;\par
+      Serial.println(submenu);\par
+    \}\par
+  \}\par
+  ButtonPressed = false;\par
+\}\par
+\par
+//servo motor control\par
+void servocheck() \{\par
+  if(page_counter != 1) \{             //when page counter not equal 1 (mode 2, 3, 4)\par
+        servo2_angle = 0;\par
+        if(servo2_angle == 0) \{       //servo motor(control volume) = 0, then turn 60 degree\par
+          delay(100);                 //delay 0.1s\par
+          servo2_angle = 60;\par
+          servo2.write(servo2_angle);\par
+          spray();                    //call spray function\par
+          servo2.write(0);\par
+        \} \par
+      \}\par
+      else if(page_counter == 1) \{    //when page counter equal 1 (mode 1)\par
+        if(servo_angle == 0) \{        //servo motor(control spray switch) = 0, then turn 180 degree\par
+          for(servo_angle = 0; servo_angle < 30; servo_angle++) \{\par
+              servo.write(servo_angle);\par
+            \}\par
+          spray();                    //call spray function\par
+        \} else \{\par
+          servo_angle = 0;\par
+          servo.write(servo_angle);\par
+          spray();\par
+        \}\par
+      \}\par
+\}\par
+\par
+//spray function\par
+void spray() \{\par
+  if(page_counter == 1) \{                 //page counter 1 / mode 1 \par
+        if(half_volume == 1) \{            //if half volume selected\par
+          if(servo2_angle == 0) \{         //servo motor(control volume) = 0, then turn 90 degree when the spray button pressed\par
+            for(servo2_angle = 0; servo2_angle < 60; servo2_angle++) \{\par
+              servo2.write(servo2_angle);\par
+            \}\par
+          \}else \{\par
+            servo2_angle = 0;             //servo motor(control volume) = 90, then turn 0 degree when the spray button pressed\par
+            servo2.write(servo2_angle);\par
+          \}\par
+        \}else if(full_volume == 1) \{      //if full volume selected\par
+          if(servo2_angle == 0) \{         //servo motor(control volume) = 0, then turn 180 degree when the spray button pressed\par
+            for(servo2_angle = 0; servo2_angle < 90; servo2_angle++) \{\par
+              servo2.write(servo2_angle);\par
+            \}\par
+          \}else \{\par
+            servo2_angle = 0;             //servo motor(control volume) = 180, then turn 0 degree when the spray button pressed\par
+            servo2.write(servo2_angle);\par
+          \}\par
+        \}\par
+      \}  \par
+      else if(page_counter == 2) \{        //page counter 2 / mode 2 (one pulse)\par
+        spraycheck();                     //call spraycheck function\par
+      \}\par
+      else if(page_counter == 3) \{        //page counter 3 / mode 3 \par
+        if(no_of_pulse == 1) \{            //1 pulse selected(no of pulse = 1)\par
+        spraycheck();\par
+        \}\par
+        else if(no_of_pulse == 2) \{       //2 pulses seleted \par
+          if(pulse_delay == 0) \{          //pulse delay duration btw pulse is zero\par
+            for(int i=0; i<2; i++) \{\par
+              spraycheck();\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 1) \{     //pulse delay duration btw pulse is 0.1s\par
+            for(int i=0; i<2; i++) \{\par
+              spraycheck();\par
+              delay(100);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 2) \{     //pulse delay duration btw pulse is 0.5s\par
+            for(int i=0; i<2; i++) \{\par
+              spraycheck();\par
+              delay(500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 3) \{     //pulse delay duration btw pulse is 1.0s\par
+            for(int i=0; i<2; i++) \{\par
+              spraycheck();\par
+              delay(1000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 4) \{     //pulse delay duration btw pulse is 1.5s\par
+            for(int i=0; i<2; i++) \{\par
+              spraycheck();\par
+              delay(1500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 5) \{     //pulse delay duration btw pulse is 2.0s\par
+            for(int i=0; i<2; i++) \{\par
+              spraycheck();\par
+              delay(2000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 6) \{     //pulse delay duration btw pulse is 2.5s\par
+            for(int i=0; i<2; i++) \{\par
+              spraycheck();\par
+              delay(2500);\par
+            \}\par
+          \}\par
+        \}\par
+        else if(no_of_pulse == 3) \{       //3 pulses selected\par
+          if(pulse_delay == 0) \{\par
+            for(int i=0; i<3; i++) \{\par
+              spraycheck();\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 1) \{\par
+            for(int i=0; i<3; i++) \{\par
+              spraycheck();\par
+              delay(100);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 2) \{\par
+            for(int i=0; i<3; i++) \{\par
+              spraycheck();\par
+              delay(500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 3) \{\par
+            for(int i=0; i<3; i++) \{\par
+              spraycheck();\par
+              delay(1000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 4) \{\par
+            for(int i=0; i<3; i++) \{\par
+              spraycheck();\par
+              delay(1500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 5) \{\par
+            for(int i=0; i<3; i++) \{\par
+              spraycheck();\par
+              delay(2000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 6) \{\par
+            for(int i=0; i<3; i++) \{\par
+              spraycheck();\par
+              delay(2500);\par
+            \}\par
+          \}\par
+        \}\par
+        else if(no_of_pulse == 4) \{       //4 pulses selected\par
+          if(pulse_delay == 0) \{\par
+            for(int i=0; i<4; i++) \{\par
+              spraycheck();\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 1) \{\par
+            for(int i=0; i<4; i++) \{\par
+              spraycheck();\par
+              delay(100);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 2) \{\par
+            for(int i=0; i<4; i++) \{\par
+              spraycheck();\par
+              delay(500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 4) \{\par
+            for(int i=0; i<4; i++) \{\par
+              spraycheck();\par
+              delay(1000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 4) \{\par
+            for(int i=0; i<4; i++) \{\par
+              spraycheck();\par
+              delay(1500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 5) \{\par
+            for(int i=0; i<4; i++) \{\par
+              spraycheck();\par
+              delay(2000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 6) \{\par
+            for(int i=0; i<4; i++) \{\par
+              spraycheck();\par
+              delay(2500);\par
+            \}\par
+          \}\par
+        \}\par
+        else if(no_of_pulse == 5) \{       //5 pulses selected\par
+          if(pulse_delay == 0) \{\par
+            for(int i=0; i<5; i++) \{\par
+              spraycheck();\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 1) \{\par
+            for(int i=0; i<5; i++) \{\par
+              spraycheck();\par
+              delay(100);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 2) \{\par
+            for(int i=0; i<5; i++) \{\par
+              spraycheck();\par
+              delay(500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 3) \{\par
+            for(int i=0; i<5; i++) \{\par
+              spraycheck();\par
+              delay(1000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 4) \{\par
+            for(int i=0; i<5; i++) \{\par
+              spraycheck();\par
+              delay(1500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 5) \{\par
+            for(int i=0; i<5; i++) \{\par
+              spraycheck();\par
+              delay(2000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 6) \{\par
+            for(int i=0; i<5; i++) \{\par
+              spraycheck();\par
+              delay(2500);\par
+            \}\par
+          \}\par
+        \}\par
+        else if(no_of_pulse == 6) \{       //6 pulses selected\par
+          if(pulse_delay == 0) \{\par
+            for(int i=0; i<6; i++) \{\par
+              spraycheck();\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 1) \{\par
+            for(int i=0; i<6; i++) \{\par
+              spraycheck();\par
+              delay(100);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 2) \{\par
+            for(int i=0; i<6; i++) \{\par
+              spraycheck();\par
+              delay(500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 3) \{\par
+            for(int i=0; i<6; i++) \{\par
+              spraycheck();\par
+              delay(1000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 4) \{\par
+            for(int i=0; i<6; i++) \{\par
+              spraycheck();\par
+              delay(1500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 5) \{\par
+            for(int i=0; i<6; i++) \{\par
+              spraycheck();\par
+              delay(2000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 6) \{\par
+            for(int i=0; i<6; i++) \{\par
+              spraycheck();\par
+              delay(2500);\par
+            \}\par
+          \}\par
+        \}\par
+        else if(no_of_pulse == 7) \{       //7 pulses selected\par
+          if(pulse_delay == 0) \{\par
+            for(int i=0; i<7; i++) \{\par
+              spraycheck();\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 1) \{\par
+            for(int i=0; i<7; i++) \{\par
+              spraycheck();\par
+              delay(100);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 2) \{\par
+            for(int i=0; i<7; i++) \{\par
+              spraycheck();\par
+              delay(500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 3) \{\par
+            for(int i=0; i<7; i++) \{\par
+              spraycheck();\par
+              delay(1000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 4) \{\par
+            for(int i=0; i<7; i++) \{\par
+              spraycheck();\par
+              delay(1500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 5) \{\par
+            for(int i=0; i<7; i++) \{\par
+              spraycheck();\par
+              delay(2000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 6) \{\par
+            for(int i=0; i<7; i++) \{\par
+              spraycheck();\par
+              delay(2500);\par
+            \}\par
+          \}\par
+        \}\par
+        else if(no_of_pulse == 8) \{       //8 pulses selected\par
+          if(pulse_delay == 0) \{\par
+            for(int i=0; i<8; i++) \{\par
+              spraycheck();\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 1) \{\par
+            for(int i=0; i<8; i++) \{\par
+              spraycheck();\par
+              delay(100);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 2) \{\par
+            for(int i=0; i<8; i++) \{\par
+              spraycheck();\par
+              delay(500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 3) \{\par
+            for(int i=0; i<8; i++) \{\par
+              spraycheck();\par
+              delay(1000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 4) \{\par
+            for(int i=0; i<8; i++) \{\par
+              spraycheck();\par
+              delay(1500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 5) \{\par
+            for(int i=0; i<8; i++) \{\par
+              spraycheck();\par
+              delay(2000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 6) \{\par
+            for(int i=0; i<8; i++) \{\par
+              spraycheck();\par
+              delay(2500);\par
+            \}\par
+          \}\par
+        \}\par
+        else if(no_of_pulse == 9) \{       //9 pulses selected\par
+          if(pulse_delay == 0) \{\par
+            for(int i=0; i<9; i++) \{\par
+              spraycheck();\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 1) \{\par
+            for(int i=0; i<9; i++) \{\par
+              spraycheck();\par
+              delay(100);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 2) \{\par
+            for(int i=0; i<9; i++) \{\par
+              spraycheck();\par
+              delay(500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 3) \{\par
+            for(int i=0; i<9; i++) \{\par
+              spraycheck();\par
+              delay(1000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 4) \{\par
+            for(int i=0; i<9; i++) \{\par
+              spraycheck();\par
+              delay(1500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 5) \{\par
+            for(int i=0; i<9; i++) \{\par
+              spraycheck();\par
+              delay(2000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 6) \{\par
+            for(int i=0; i<9; i++) \{\par
+              spraycheck();\par
+              delay(2500);\par
+            \}\par
+          \}\par
+        \}\par
+        else if(no_of_pulse == 10) \{        //10 pulses selected\par
+          if(pulse_delay == 0) \{\par
+            for(int i=0; i<10; i++) \{\par
+              spraycheck();\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 1) \{\par
+            for(int i=0; i<10; i++) \{\par
+              spraycheck();\par
+              delay(100);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 2) \{\par
+            for(int i=0; i<10; i++) \{\par
+              spraycheck();\par
+              delay(500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 3) \{\par
+            for(int i=0; i<10; i++) \{\par
+              spraycheck();\par
+              delay(1000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 4) \{\par
+            for(int i=0; i<10; i++) \{\par
+              spraycheck();\par
+              delay(1500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 5) \{\par
+            for(int i=0; i<10; i++) \{\par
+              spraycheck();\par
+              delay(2000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 6) \{\par
+            for(int i=0; i<10; i++) \{\par
+              spraycheck();\par
+              delay(2500);\par
+            \}\par
+          \}\par
+        \}\par
+      \}\par
+      else if(page_counter == 4) \{        //page counter 4 / mode 4\par
+         if(no_of_pulse == 1) \{           //1 pulse selected\par
+        spraycheck();\par
+        \}\par
+        else if(no_of_pulse == 2) \{       //2 pulses selected\par
+          if(pulse_delay == 0) \{\par
+            for(int i=0; i<2; i++) \{\par
+              spraycheck();\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 1) \{\par
+            for(int i=0; i<2; i++) \{\par
+              spraycheck();\par
+              delay(100);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 2) \{\par
+            for(int i=0; i<2; i++) \{\par
+              spraycheck();\par
+              delay(500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 3) \{\par
+            for(int i=0; i<2; i++) \{\par
+              spraycheck();\par
+              delay(1000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 4) \{\par
+            for(int i=0; i<2; i++) \{\par
+              spraycheck();\par
+              delay(1500);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 5) \{\par
+            for(int i=0; i<2; i++) \{\par
+              spraycheck();\par
+              delay(2000);\par
+            \}\par
+          \}\par
+          else if(pulse_delay == 6) \{\par
+            for(int i=0; i<2; i++) \{\par
+              spraycheck();\par
+              delay(2500);\par
+            \}\par
+          \}\par
+        \}\par
+        else if(no_of_pulse == 3) \{         //3 pulses selected\par
+          spraydelaycheck();\par
+        \}\par
+        else if(no_of_pulse == 4) \{         //4 pulses selected\par
+          if(pulse_delay_btw34 == 0) \{      //delay duration btw pulse 3 & 4 = 0\par
+            spraycheck();\par
+            spraydelaycheck();\par
+          \}\par
+          else if(pulse_delay_btw34 == 1) \{     //delay duration btw pulse 3 & 4 = 0.1s\par
+            spraydelaycheck();\par
+            delay(100);\par
+            spraycheck();\par
+          \}\par
+          else if(pulse_delay_btw34 == 2) \{     //delay duration btw pulse 3 & 4 = 0.5s\par
+            spraydelaycheck();\par
+            delay(500);\par
+            spraycheck();\par
+          \}\par
+          else if(pulse_delay_btw34 == 3) \{     //delay duration btw pulse 3 & 4 = 1.0s\par
+            spraydelaycheck();\par
+            delay(1000);\par
+            spraycheck();\par
+          \}\par
+          else if(pulse_delay_btw34 == 4) \{     //delay duration btw pulse 3 & 4 = 1.5s\par
+            spraydelaycheck();\par
+            delay(1500);\par
+            spraycheck();\par
+          \}\par
+          else if(pulse_delay_btw34 == 5) \{     //delay duration btw pulse 3 & 4 = 2.0s\par
+            spraydelaycheck();\par
+            delay(2000);\par
+            spraycheck();\par
+          \}\par
+          else if(pulse_delay_btw34 == 6) \{     //delay duration btw pulse 3 & 4 = 2.5s\par
+            spraydelaycheck();\par
+            delay(2500);\par
+            spraycheck();\par
+          \}\par
+        \}\par
+      \}\par
+\}\par
+\par
+//spraycheck function\par
+void spraycheck() \{\par
+  if(pulse_duration == 1) \{                     //pulse duration 1 selected (0.1s)\par
+              servo.write(0);                 //movement of servo motor\par
+              delay(200);\par
+              servo.write(30);\par
+          \}else if(pulse_duration == 2) \{       //pulse duration 2 selected (0.5s)\par
+            servo.write(0);\par
+            delay(300);\par
+            servo.write(30);\par
+          \}else if(pulse_duration == 3) \{       //pulse duration 3 selected (1.0s)\par
+            servo.write(0);\par
+            delay(400);\par
+            servo.write(30);\par
+          \}else if(pulse_duration == 4) \{       //pulse duration 4 selected (1.5s)\par
+            servo.write(0);\par
+            delay(500);\par
+            servo.write(30);\par
+          \}else if(pulse_duration == 5) \{       //pulse duration 5 selected (2.0s)\par
+            servo.write(0);\par
+            delay(600);\par
+            servo.write(30);\par
+          \}else if(pulse_duration == 6) \{       //pulse duration 6 selected (2.5s)\par
+            servo.write(0);\par
+            delay(700);\par
+            servo.write(30);\par
+          \}\par
+\}\par
+\par
+//spraydelaycheck function\par
+void spraydelaycheck() \{\par
+  if(pulse_delay_btw12 == 0) \{                  //pulse delay btw pulse 1 & 2 = 0 selected\par
+            if(pulse_delay_btw23 == 0) \{        //pulse delay btw pulse 2 & 3 = 0 selected\par
+              for(int i=0; i<3; i++) \{\par
+                spraycheck();\par
+              \}\par
+            \}\par
+            else if(pulse_delay_btw23 == 1) \{   //pulse delay btw pulse 2 & 3 = 1 selected\par
+              spraycheck();\par
+              spraycheck();\par
+              delay(100);                        //pulse delay 0.1s btw pulse 2&3\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 2) \{    //pulse delay btw pulse 2 & 3 = 2 selected\par
+              spraycheck();\par
+              spraycheck();\par
+              delay(500);                        //pulse delay 0.5s btw pulse 2&3\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 3) \{    //pulse delay btw pulse 2 & 3 = 3 selected\par
+              spraycheck();\par
+              spraycheck();\par
+              delay(1000);                       //pulse delay 1.0s btw pulse 2&3\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 4) \{    //pulse delay btw pulse 2 & 3 = 4 selected\par
+              spraycheck();\par
+              spraycheck();\par
+              delay(1500);                       //pulse delay 1.5s btw pulse 2&3\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 5) \{    //pulse delay btw pulse 2 & 3 = 5 selected\par
+              spraycheck();\par
+              spraycheck();\par
+              delay(2000);                       //pulse delay 2.0s btw pulse 2&3\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 6) \{     //pulse delay btw pulse 2 & 3 = 6 selected\par
+              spraycheck();\par
+              spraycheck();\par
+              delay(2500);                        //pulse delay 2.5s btw pulse 2&3\par
+              spraycheck();\par
+            \}\par
+          \}\par
+          else if(pulse_delay_btw12 == 1) \{       \par
+            if(pulse_delay_btw23 == 0) \{\par
+              spraycheck();\par
+              delay(100);\par
+              spraycheck();\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 1) \{\par
+              spraycheck();\par
+              delay(100);\par
+              spraycheck();\par
+              delay(100);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 2) \{\par
+              spraycheck();\par
+              delay(100);\par
+              spraycheck();\par
+              delay(500);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 3) \{\par
+              spraycheck();\par
+              delay(100);\par
+              spraycheck();\par
+              delay(1000);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 4) \{\par
+              spraycheck();\par
+              delay(100);\par
+              spraycheck();\par
+              delay(1500);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 5) \{\par
+              spraycheck();\par
+              delay(100);\par
+              spraycheck();\par
+              delay(2000);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 6) \{\par
+              spraycheck();\par
+              delay(100);\par
+              spraycheck();\par
+              delay(2500);\par
+              spraycheck();\par
+            \}\par
+          \}\par
+          else if(pulse_delay_btw12 == 2) \{\par
+            if(pulse_delay_btw23 == 0) \{\par
+              spraycheck();\par
+              delay(500);\par
+              spraycheck();\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 1) \{\par
+              spraycheck();\par
+              delay(500);\par
+              spraycheck();\par
+              delay(100);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 2) \{\par
+              spraycheck();\par
+              delay(500);\par
+              spraycheck();\par
+              delay(500);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 3) \{\par
+              spraycheck();\par
+              delay(500);\par
+              spraycheck();\par
+              delay(1000);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 4) \{\par
+              spraycheck();\par
+              delay(500);\par
+              spraycheck();\par
+              delay(1500);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 5) \{\par
+              spraycheck();\par
+              delay(500);\par
+              spraycheck();\par
+              delay(2000);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 6) \{\par
+              spraycheck();\par
+              delay(500);\par
+              spraycheck();\par
+              delay(2500);\par
+              spraycheck();\par
+            \}\par
+          \}\par
+          else if(pulse_delay_btw12 == 3) \{\par
+            if(pulse_delay_btw23 == 0) \{\par
+              spraycheck();\par
+              delay(1000);\par
+              spraycheck();\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 1) \{\par
+              spraycheck();\par
+              delay(1000);\par
+              spraycheck();\par
+              delay(100);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 2) \{\par
+              spraycheck();\par
+              delay(1000);\par
+              spraycheck();\par
+              delay(500);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 3) \{\par
+              spraycheck();\par
+              delay(1000);\par
+              spraycheck();\par
+              delay(1000);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 4) \{\par
+              spraycheck();\par
+              delay(1000);\par
+              spraycheck();\par
+              delay(1500);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 5) \{\par
+              spraycheck();\par
+              delay(1000);\par
+              spraycheck();\par
+              delay(2000);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 6) \{\par
+              spraycheck();\par
+              delay(1000);\par
+              spraycheck();\par
+              delay(2500);\par
+              spraycheck();\par
+            \}\par
+          \}\par
+          else if(pulse_delay_btw12 == 4) \{\par
+            if(pulse_delay_btw23 == 0) \{\par
+              spraycheck();\par
+              delay(1500);\par
+              spraycheck();\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 1) \{\par
+              spraycheck();\par
+              delay(1500);\par
+              spraycheck();\par
+              delay(100);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 2) \{\par
+              spraycheck();\par
+              delay(1500);\par
+              spraycheck();\par
+              delay(500);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 3) \{\par
+              spraycheck();\par
+              delay(1500);\par
+              spraycheck();\par
+              delay(1000);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 4) \{\par
+              spraycheck();\par
+              delay(1500);\par
+              spraycheck();\par
+              delay(1500);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 5) \{\par
+              spraycheck();\par
+              delay(1500);\par
+              spraycheck();\par
+              delay(2000);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 6) \{\par
+              spraycheck();\par
+              delay(1500);\par
+              spraycheck();\par
+              delay(2500);\par
+              spraycheck();\par
+            \}\par
+          \}\par
+          else if(pulse_delay_btw12 == 5) \{\par
+            if(pulse_delay_btw23 == 0) \{\par
+              spraycheck();\par
+              delay(2000);\par
+              spraycheck();\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 1) \{\par
+              spraycheck();\par
+              delay(2000);\par
+              spraycheck();\par
+              delay(100);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 2) \{\par
+              spraycheck();\par
+              delay(2000);\par
+              spraycheck();\par
+              delay(500);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 3) \{\par
+              spraycheck();\par
+              delay(2000);\par
+              spraycheck();\par
+              delay(1000);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 4) \{\par
+              spraycheck();\par
+              delay(2000);\par
+              spraycheck();\par
+              delay(1500);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 5) \{\par
+              spraycheck();\par
+              delay(2000);\par
+              spraycheck();\par
+              delay(2000);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 6) \{\par
+              spraycheck();\par
+              delay(2000);\par
+              spraycheck();\par
+              delay(2500);\par
+              spraycheck();\par
+            \}\par
+          \}\par
+          else if(pulse_delay_btw12 == 6) \{\par
+            if(pulse_delay_btw23 == 0) \{\par
+              spraycheck();\par
+              delay(2500);\par
+              spraycheck();\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 1) \{\par
+              spraycheck();\par
+              delay(2500);\par
+              spraycheck();\par
+              delay(100);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 2) \{\par
+              spraycheck();\par
+              delay(2500);\par
+              spraycheck();\par
+              delay(500);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 3) \{\par
+              spraycheck();\par
+              delay(2500);\par
+              spraycheck();\par
+              delay(1000);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 4) \{\par
+              spraycheck();\par
+              delay(2500);\par
+              spraycheck();\par
+              delay(1500);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 5) \{\par
+              spraycheck();\par
+              delay(2500);\par
+              spraycheck();\par
+              delay(2000);\par
+              spraycheck();\par
+            \}\par
+            else if(pulse_delay_btw23 == 6) \{\par
+              spraycheck();\par
+              delay(2500);\par
+              spraycheck();\par
+              delay(2500);\par
+              spraycheck();\par
+            \}\par
+          \}\par
+\}\par
+\par
+//submenuchceker function --> different modes for LCD display\par
+void SubmenuChecker() \{\par
+  if(rotated == true) \{     //when the rotary encoder turning\par
+    //Ready = 1;\par
+    if(submenu == 0)\{\par
+      switch (page_counter) \{\par
+   \par
+       case 1:\{     //Design of home page 1\par
+          lcd.clear();\par
+          lcd.setCursor(0,0);\par
+          lcd.print("MODE 1");\par
+          lcd.setCursor(11,0);\par
+          lcd.print("Enter");\par
+          lcd.setCursor(11,1);\par
+          lcd.write(1);\par
+          lcd.setCursor(12,1);\par
+          lcd.print("Next");\par
+          delay(1000);\par
+      \par
+       \}\par
+       break;\par
+\par
+      case 2: \{ //Design of page 2 \par
+         lcd.clear();\par
+         lcd.setCursor(0,0);\par
+         lcd.print("MODE 2");\par
+         lcd.setCursor(11,0);\par
+         lcd.print("Enter");\par
+         lcd.setCursor(0,1);\par
+         lcd.print("Previous");\par
+         lcd.setCursor(8,1);\par
+         lcd.write(0);\par
+         lcd.setCursor(11,1);\par
+         lcd.write(1);\par
+         lcd.setCursor(12,1);\par
+         lcd.print("Next");\par
+         delay(1000);\par
+         //lcd.clear();\par
+         //delay(500);\par
+       \par
+      \}\par
+      break;\par
+\par
+      case 3: \{   //Design of page 3 \par
+         lcd.clear();\par
+         lcd.setCursor(0,0);\par
+         lcd.print("MODE 3");\par
+         lcd.setCursor(11,0);\par
+         lcd.print("Enter");\par
+         lcd.setCursor(0,1);\par
+         lcd.print("Previous");\par
+         lcd.setCursor(8,1);\par
+         lcd.write(0);\par
+         lcd.setCursor(11,1);\par
+         lcd.write(1);\par
+         lcd.setCursor(12,1);\par
+         lcd.print("Next");\par
+         delay(1000);\par
+      \}\par
+      break; \par
+\par
+      case 4: \{ //Design of page 4 \par
+         lcd.clear();\par
+         lcd.setCursor(0,0);\par
+         lcd.print("MODE 4");\par
+         lcd.setCursor(11,0);\par
+         lcd.print("Enter");\par
+         lcd.setCursor(0,1);\par
+         lcd.print("Previous");\par
+         lcd.setCursor(8,1);\par
+         lcd.write(0);\par
+         //lcd.setCursor(11,1);\par
+         //lcd.write(1);\par
+         //lcd.setCursor(12,1);\par
+         //lcd.print("Next");\par
+         delay(1000);\par
+         //lcd.clear();\par
+         //delay(500);\par
+      \}\par
+      break;\par
+    \}//switch end\par
+  \}//submenu0 end\par
+  submenuinfo();\par
+  rotated = false;\par
+  \}\par
+\}\par
+\par
+//submenuinfo function ---> different submenu LCD display for each mmode\par
+void submenuinfo() \{\par
+  if(rotated == true) \{\par
+  if(submenu == 1 && page_counter == 1) \{\par
+    if(0 <= counter && counter < 3) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Manual Spray");\par
+      lcd.setCursor(0,1);\par
+      lcd.print("Volume >Half  Full");\par
+    \}\par
+    if(3 < counter && counter < 6) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Manual Spray");\par
+      lcd.setCursor(0,1);\par
+      lcd.print("Volume  Half >Full");\par
+    \}\par
+  \}\par
+  if(submenu == 1 && page_counter == 2) \{\par
+    if(0 <= counter && counter < 6) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Pulse Duration");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">press to set Dur");\par
+    \}\par
+  \}\par
+  if(submenu == 1 && page_counter == 3) \{\par
+    if(0 <= counter && counter < 6) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Vary Pulse");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">press: set pulse");\par
+    \}\par
+  \}\par
+  if(submenu == 1 && page_counter == 4) \{\par
+    if(0 <= counter && counter < 6) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Full Auto Custom");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">press: set pulse");\par
+    \}\par
+  \}\par
+  if(submenu == 2 && page_counter == 1 && (0 <= counter && counter < 3)) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Half Volume");\par
+      lcd.setCursor(0,1);\par
+      lcd.print("press to spray");\par
+      half_volume = 1;\par
+  \}\par
+  if(submenu == 2 && page_counter == 1 && (3 <= counter && counter < 6)) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Full Volume");\par
+      lcd.setCursor(0,1);\par
+      lcd.print("press to spray");\par
+      full_volume = 1;\par
+  \}\par
+  if(submenu == 2 && page_counter ==2) \{\par
+    no_of_pulse = 1;\par
+    if(0 <= counter2 && counter2 < 2) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("one pulse");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">Duration: 0.0sec");\par
+    \}\par
+    if(2 < counter2 && counter2 < 4) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("one pulse");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">Duration: 0.2sec");\par
+      pulse_duration_check = 1;\par
+    \}\par
+    if(4 < counter2 && counter2 < 6) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("one pulse");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">Duration: 0.3sec");\par
+      pulse_duration_check = 2;\par
+    \}\par
+    if(6 < counter2 && counter2 < 8) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("one pulse");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">Duration: 0.4sec");\par
+      pulse_duration_check = 3;\par
+    \}\par
+    if(8 < counter2 && counter2 < 10) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("one pulse");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">Duration: 0.5sec");\par
+      pulse_duration_check = 4;\par
+    \}\par
+    if(10 < counter2 && counter2 < 12) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("one pulse");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">Duration: 0.6sec");\par
+      pulse_duration_check = 5;\par
+    \}\par
+    if(12 < counter2 && counter2 < 14) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("one pulse");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">Duration: 0.7sec");\par
+      pulse_duration_check = 6;\par
+    \}\par
+  \}\par
+  if(submenu == 2 && page_counter == 3) \{\par
+    if(0 <= counter && counter < 2) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("># of pulse: 0");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(" Duration: 0.0sec");\par
+      no_of_pulse = 0;\par
+    \}\par
+    if(2 < counter && counter < 4) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("># of pulse: 1");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(" Duration: 0.0sec");\par
+      no_of_pulse = 1;\par
+      durationcheck();\par
+      delaycheck();\par
+    \}\par
+    if(4 < counter && counter < 6) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("># of pulse: 2");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(" Duration: 0.0sec");\par
+      no_of_pulse = 2;\par
+      durationcheck();\par
+      delaycheck();\par
+    \}\par
+    if(6 < counter && counter < 8) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("># of pulse: 3");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(" Duration: 0.0sec");\par
+      no_of_pulse = 3;\par
+      durationcheck();\par
+      delaycheck();\par
+    \}\par
+    if(8 < counter && counter < 10) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("># of pulse: 4");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(" Duration: 0.0sec");\par
+      no_of_pulse = 4;\par
+      durationcheck();\par
+      delaycheck();\par
+    \}\par
+    if(10 < counter && counter < 12) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("># of pulse: 5");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(" Duration: 0.0sec");\par
+      no_of_pulse = 5;\par
+      durationcheck();\par
+      delaycheck();\par
+    \}\par
+    if(12 < counter && counter < 14) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("># of pulse: 6");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(" Duration: 0.0sec");\par
+      no_of_pulse = 6;\par
+      durationcheck();\par
+      delaycheck();\par
+    \}\par
+    if(14 < counter && counter < 16) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("># of pulse: 7");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(" Duration: 0.0sec");\par
+      no_of_pulse = 7;\par
+      durationcheck();\par
+      delaycheck();\par
+    \}\par
+    if(16 < counter && counter < 18) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("># of pulse: 8");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(" Duration: 0.0sec");\par
+      no_of_pulse = 8;\par
+      durationcheck();\par
+      delaycheck();\par
+    \}\par
+    if(18 < counter && counter < 20) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("># of pulse: 9");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(" Duration: 0.0sec");\par
+      no_of_pulse = 9;\par
+      durationcheck();\par
+      delaycheck();\par
+    \}\par
+    if(20 < counter && counter < 22) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("># of pulse: 10");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(" Duration: 0.0sec");\par
+      no_of_pulse = 10;\par
+      durationcheck();\par
+      delaycheck();\par
+    \}\par
+  \}\par
+  if(submenu == 2 && page_counter == 4) \{\par
+    if(0 <= counter3 && counter3 < 2) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("># of pulse: 0");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(" Duration: 0.0sec");\par
+      no_of_pulse = 0;\par
+    \}\par
+    if(2 < counter3 && counter3 < 4) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("># of pulse: 1");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(" Duration: 0.0sec");\par
+      no_of_pulse = 1;\par
+      durationcheck1();\par
+      delaycheck();\par
+    \}\par
+    if(4 < counter3 && counter3 < 6) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("># of pulse: 2");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(" Duration: 0.0sec");\par
+      no_of_pulse = 2;\par
+      durationcheck1();\par
+      delaycheck();\par
+    \}\par
+    if(6 < counter3 && counter3 < 8) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("># of pulse: 3");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(" Duration: 0.0sec");\par
+      no_of_pulse = 3;\par
+      durationcheck1();\par
+      delaycheck();\par
+    \}\par
+    if(8 < counter3 && counter3 < 10) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("># of pulse: 4");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(" Duration: 0.0sec");\par
+      no_of_pulse = 4;\par
+      durationcheck1();\par
+      delaycheck();\par
+    \}\par
+  \}\par
+  rotated = false;\par
+ \} \par
+\}\par
+\par
+//durationcheck function --> different LCD display for different choices of pulse and duration of pulse for mode 3 \par
+void durationcheck() \{\par
+  if(submenu == 3 && page_counter == 3) \{\par
+        if(0 <= counter1 && counter1 < 2) \{\par
+          lcd.clear();\par
+          lcd.setCursor(0,0);\par
+          lcd.print(String(" # of pulse: ") + String(no_of_pulse));\par
+          lcd.setCursor(0,1);\par
+          lcd.print(">Duration: 0.0sec");\par
+        \}\par
+        if(2 < counter1 && counter1 < 4) \{\par
+          lcd.clear();\par
+          lcd.setCursor(0,0);\par
+          lcd.print(String(" # of pulse: ") + String(no_of_pulse));\par
+          lcd.setCursor(0,1);\par
+          lcd.print(">Duration: 0.2sec");\par
+          pulse_duration = 1;\par
+        \}\par
+        if(4 < counter1 && counter1 < 6) \{\par
+          lcd.clear();\par
+          lcd.setCursor(0,0);\par
+          lcd.print(String(" # of pulse: ") + String(no_of_pulse));\par
+          lcd.setCursor(0,1);\par
+          lcd.print(">Duration: 0.3sec");\par
+          pulse_duration = 2;\par
+        \}\par
+        if(6 < counter1 && counter1 < 8) \{\par
+          lcd.clear();\par
+          lcd.setCursor(0,0);\par
+          lcd.print(String(" # of pulse: ") + String(no_of_pulse));\par
+          lcd.setCursor(0,1);\par
+          lcd.print(">Duration: 0.4sec");\par
+          pulse_duration = 3;\par
+        \}\par
+        if(8 < counter1 && counter1 < 10) \{\par
+          lcd.clear();\par
+          lcd.setCursor(0,0);\par
+          lcd.print(String(" # of pulse: ") + String(no_of_pulse));\par
+          lcd.setCursor(0,1);\par
+          lcd.print(">Duration: 0.5sec");\par
+          pulse_duration = 4;\par
+        \}\par
+        if(10 < counter1 && counter1 < 12) \{\par
+          lcd.clear();\par
+          lcd.setCursor(0,0);\par
+          lcd.print(String(" # of pulse: ") + String(no_of_pulse));\par
+          lcd.setCursor(0,1);\par
+          lcd.print(">Duration: 0.6sec");\par
+          pulse_duration = 5;\par
+        \}\par
+        if(12 < counter1 && counter1 < 14) \{\par
+          lcd.clear();\par
+          lcd.setCursor(0,0);\par
+          lcd.print(String(" # of pulse: ") + String(no_of_pulse));\par
+          lcd.setCursor(0,1);\par
+          lcd.print(">Duration: 0.7sec");\par
+          pulse_duration = 6;\par
+        \} \par
+    \}\par
+\}\par
+\par
+//durationcheck1 function --> different LCD display for different choices of pulse and duration of pulse for mode 4 \par
+void durationcheck1() \{\par
+  if(submenu == 3 && page_counter == 4) \{\par
+        if(0 <= counter1 && counter1 < 2) \{\par
+          lcd.clear();\par
+          lcd.setCursor(0,0);\par
+          lcd.print(String(" # of pulse: ") + String(no_of_pulse));\par
+          lcd.setCursor(0,1);\par
+          lcd.print(">Duration: 0.0sec");\par
+        \}\par
+        if(2 < counter1 && counter1 < 4) \{\par
+          lcd.clear();\par
+          lcd.setCursor(0,0);\par
+          lcd.print(String(" # of pulse: ") + String(no_of_pulse));\par
+          lcd.setCursor(0,1);\par
+          lcd.print(">Duration: 0.2sec");\par
+          pulse_duration = 1;\par
+        \}\par
+        if(4 < counter1 && counter1 < 6) \{\par
+          lcd.clear();\par
+          lcd.setCursor(0,0);\par
+          lcd.print(String(" # of pulse: ") + String(no_of_pulse));\par
+          lcd.setCursor(0,1);\par
+          lcd.print(">Duration: 0.3sec");\par
+          pulse_duration = 2;\par
+        \}\par
+        if(6 < counter1 && counter1 < 8) \{\par
+          lcd.clear();\par
+          lcd.setCursor(0,0);\par
+          lcd.print(String(" # of pulse: ") + String(no_of_pulse));\par
+          lcd.setCursor(0,1);\par
+          lcd.print(">Duration: 0.4sec");\par
+          pulse_duration = 3;\par
+        \}\par
+        if(8 < counter1 && counter1 < 10) \{\par
+          lcd.clear();\par
+          lcd.setCursor(0,0);\par
+          lcd.print(String(" # of pulse: ") + String(no_of_pulse));\par
+          lcd.setCursor(0,1);\par
+          lcd.print(">Duration: 0.5sec");\par
+          pulse_duration = 4;\par
+        \}\par
+        if(10 < counter1 && counter1 < 12) \{\par
+          lcd.clear();\par
+          lcd.setCursor(0,0);\par
+          lcd.print(String(" # of pulse: ") + String(no_of_pulse));\par
+          lcd.setCursor(0,1);\par
+          lcd.print(">Duration: 0.6sec");\par
+          pulse_duration = 5;\par
+        \}\par
+        if(12 < counter1 && counter1 < 14) \{\par
+          lcd.clear();\par
+          lcd.setCursor(0,0);\par
+          lcd.print(String(" # of pulse: ") + String(no_of_pulse));\par
+          lcd.setCursor(0,1);\par
+          lcd.print(">Duration: 0.7sec");\par
+          pulse_duration = 6;\par
+        \}\par
+    \}\par
+\}\par
+\par
+//durationcheck2 function --> different LCD display for different choices of pulse and duration of pulse for mode 2 \par
+void durationcheck2() \{\par
+  if(submenu == 3 && page_counter == 2) \{\par
+    if(pulse_duration_check == 1) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Duration: 0.2sec");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">press to spray");\par
+      pulse_duration = 1;\par
+    \}\par
+    else if(pulse_duration_check == 2) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Duration: 0.3sec");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">press to spray");\par
+      pulse_duration = 2;\par
+    \}\par
+    else if(pulse_duration_check == 3) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Duration: 0.4sec");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">press to spray");\par
+      pulse_duration = 3;\par
+    \}\par
+    else if(pulse_duration_check == 4) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Duration: 0.5sec");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">press to spray");\par
+      pulse_duration = 4;\par
+    \}\par
+    else if(pulse_duration_check == 5) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Duration: 0.6sec");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">press to spray");\par
+      pulse_duration = 5;\par
+    \}\par
+    else if(pulse_duration_check == 6) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Duration: 0.7sec");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">press to spray");\par
+      pulse_duration = 6;\par
+    \}\par
+  \}\par
+\}\par
+\par
+//delaycheck function --> different choices of delay btw pulses for mode 3\par
+void delaycheck() \{\par
+  if(submenu == 4 && page_counter == 3) \{\par
+    if(0 <= counter4 && counter4 < 2) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Delay btw pulse");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">Delay: 0.0sec");\par
+      pulse_delay = 0;\par
+    \}\par
+    if(2 < counter4 && counter4 < 4) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Delay btw pulse");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">Delay: 0.1sec");\par
+      pulse_delay = 1;\par
+    \}\par
+    if(4 < counter4 && counter4 < 6) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Delay btw pulse");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">Delay: 0.5sec");\par
+      pulse_delay = 2;\par
+    \}\par
+    if(6 < counter4 && counter4 < 8) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Delay btw pulse");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">Delay: 1.0sec");\par
+      pulse_delay = 3;\par
+    \}\par
+    if(8 < counter4 && counter4 < 10) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Delay btw pulse");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">Delay: 1.5sec");\par
+      pulse_delay = 4;\par
+    \}\par
+    if(10 < counter4 && counter4 < 12) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Delay btw pulse");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">Delay: 2.0sec");\par
+      pulse_delay = 5;\par
+    \}\par
+    if(12 < counter4 && counter4 < 14) \{\par
+      lcd.clear();\par
+      lcd.setCursor(0,0);\par
+      lcd.print("Delay btw pulse");\par
+      lcd.setCursor(0,1);\par
+      lcd.print(">Delay: 2.5sec");\par
+      pulse_delay = 6;\par
+    \}\par
+  \}\par
+\}\par
+\par
+//eachdelaycheck function --> different choices of each delay btw pulse after the no of pulses have selected for mode 4\par
+void eachdelaycheck1() \{\par
+  if(submenu == 4 && page_counter == 4) \{\par
+    if(no_of_pulse == 2) \{\par
+      if(0 <= counter4 && counter4 < 2) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("Delay btw pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.0sec");\par
+        pulse_delay = 0;\par
+      \}\par
+      if(2 < counter4 && counter4 < 4) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("Delay btw pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.1sec");\par
+        pulse_delay = 1;\par
+      \}\par
+      if(4 < counter4 && counter4 < 6) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("Delay btw pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.5sec");\par
+        pulse_delay = 2;\par
+      \}\par
+      if(6 < counter4 && counter4 < 8) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("Delay btw pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 1.0sec");\par
+        pulse_delay = 3;\par
+      \}\par
+      if(8 < counter4 && counter4 < 10) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("Delay btw pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 1.5sec");\par
+        pulse_delay = 4;\par
+      \}\par
+      if(10 < counter4 && counter4 < 12) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("Delay btw pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 2.0sec");\par
+        pulse_delay = 5;\par
+      \}\par
+      if(12 < counter4 && counter4 < 14) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("Delay btw pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 2.5sec");\par
+        pulse_delay = 6;\par
+      \}\par
+    \}\par
+    else if(no_of_pulse == 3) \{\par
+      if(0 <= counter4 && counter4 < 2) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 1&2pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.0sec");\par
+        pulse_delay_btw12 = 0;\par
+      \}\par
+      if(2 < counter4 && counter4 < 4) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 1&2pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.1sec");\par
+        pulse_delay_btw12 = 1;\par
+      \}\par
+      if(4 < counter4 && counter4 < 6) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 1&2pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.5sec");\par
+        pulse_delay_btw12 = 2;\par
+      \}\par
+      if(6 < counter4 && counter4 < 8) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 1&2pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 1.0sec");\par
+        pulse_delay_btw12 = 3;\par
+      \}\par
+      if(8 < counter4 && counter4 < 10) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 1&2pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 1.5sec");\par
+        pulse_delay_btw12 = 4;\par
+      \}\par
+      if(10 < counter4 && counter4 < 12) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 1&2pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 2.0sec");\par
+        pulse_delay_btw12 = 5;\par
+      \}\par
+      if(12 < counter4 && counter4 < 14) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 1&2pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 2.5sec");\par
+        pulse_delay_btw12 = 6;\par
+      \}\par
+    \}\par
+    else \{\par
+      if(0 <= counter4 && counter4 < 2) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 1&2pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.0sec");\par
+        pulse_delay_btw12 = 0;\par
+      \}\par
+      if(2 < counter4 && counter4 < 4) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 1&2pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.1sec");\par
+        pulse_delay_btw12 = 1;\par
+      \}\par
+      if(4 < counter4 && counter4 < 6) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 1&2pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.5sec");\par
+        pulse_delay_btw12 = 2;\par
+      \}\par
+      if(6 < counter4 && counter4 < 8) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 1&2pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 1.0sec");\par
+        pulse_delay_btw12 = 3;\par
+      \}\par
+      if(8 < counter4 && counter4 < 10) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 1&2pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 1.5sec");\par
+        pulse_delay_btw12 = 4;\par
+      \}\par
+      if(10 < counter4 && counter4 < 12) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 1&2pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 2.0sec");\par
+        pulse_delay_btw12 = 5;\par
+      \}\par
+      if(12 < counter4 && counter4 < 14) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 1&2pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 2.5sec");\par
+        pulse_delay_btw12 = 6;\par
+      \}\par
+    \}\par
+  \}\par
+  if(submenu == 5 && page_counter == 4) \{\par
+    if(no_of_pulse == 3) \{\par
+      if(0 <= counter5 && counter5 < 2) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 2&3pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.0sec");\par
+        pulse_delay_btw23 = 0;\par
+      \}\par
+      if(2 < counter5 && counter5 < 4) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 2&3pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.1sec");\par
+        pulse_delay_btw23 = 1;\par
+      \}\par
+      if(4 < counter5 && counter5 < 6) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 2&3pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.5sec");\par
+        pulse_delay_btw23 = 2;\par
+      \}\par
+      if(6 < counter5 && counter5 < 8) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 2&3pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 1.0sec");\par
+        pulse_delay_btw23 = 3;\par
+      \}\par
+      if(8 < counter5 && counter5 < 10) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 2&3pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 1.5sec");\par
+        pulse_delay_btw23 = 4;\par
+      \}\par
+      if(10 < counter5 && counter5 < 12) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 2&3pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 2.0sec");\par
+        pulse_delay_btw23 = 5;\par
+      \}\par
+      if(12 < counter5 && counter5 < 14) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 2&3pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 2.5sec");\par
+        pulse_delay_btw23 = 6;\par
+      \}\par
+    \}\par
+    else if(no_of_pulse == 4) \{\par
+      if(0 <= counter5 && counter5 < 2) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 2&3pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.0sec");\par
+        pulse_delay_btw23 = 0;\par
+      \}\par
+      if(2 < counter5 && counter5 < 4) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 2&3pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.1sec");\par
+        pulse_delay_btw23 = 1;\par
+      \}\par
+      if(4 < counter5 && counter5 < 6) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 2&3pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.5sec");\par
+        pulse_delay_btw23 = 2;\par
+      \}\par
+      if(6 < counter5 && counter5 < 8) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 2&3pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 1.0sec");\par
+        pulse_delay_btw23 = 3;\par
+      \}\par
+      if(8 < counter5 && counter5 < 10) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 2&3pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 1.5sec");\par
+        pulse_delay_btw23 = 4;\par
+      \}\par
+      if(10 < counter5 && counter5 < 12) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 2&3pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 2.0sec");\par
+        pulse_delay_btw23 = 5;\par
+      \}\par
+      if(12 < counter5 && counter5 < 14) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 2&3pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 2.5sec");\par
+        pulse_delay_btw23 = 6;\par
+      \}\par
+    \}\par
+  \}\par
+  if(submenu == 6 && page_counter == 4) \{\par
+      if(0 <= counter6 && counter6 < 2) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 3&4pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.0sec");\par
+        pulse_delay_btw34 = 0;\par
+      \}\par
+      if(2 < counter6 && counter6 < 4) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 3&4pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.1sec");\par
+        pulse_delay_btw34 = 1;\par
+      \}\par
+      if(4 < counter6 && counter6 < 6) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 3&4pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 0.5sec");\par
+        pulse_delay_btw34 = 2;\par
+      \}\par
+      if(6 < counter6 && counter6 < 8) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 3&4pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 1.0sec");\par
+        pulse_delay_btw34 = 3;\par
+      \}\par
+      if(8 < counter6 && counter6 < 10) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 3&4pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 1.5sec");\par
+        pulse_delay_btw34 = 4;\par
+      \}\par
+      if(10 < counter6 && counter6 < 12) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 3&4pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 2.0sec");\par
+        pulse_delay_btw34 = 5;\par
+      \}\par
+      if(12 < counter6 && counter6 < 14) \{\par
+        lcd.clear();\par
+        lcd.setCursor(0,0);\par
+        lcd.print("DLA btw 3&4pulse");\par
+        lcd.setCursor(0,1);\par
+        lcd.print(">Delay: 2.5sec");\par
+        pulse_delay_btw34 = 6;\par
+      \}\par
+  \}\par
+\}\par
+
+\pard\ltrpar\widctlpar\sa160\sl252\slmult1\par
+
+\pard\ltrpar\sa200\sl276\slmult1\f1\lang9\par
+}
+ 
